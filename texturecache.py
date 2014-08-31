@@ -58,7 +58,7 @@ else:
 class MyConfiguration(object):
   def __init__(self, argv):
 
-    self.VERSION = "1.7.3"
+    self.VERSION = "1.7.5"
 
     self.GITHUB = "https://raw.github.com/spamverdacht/texturecache.py/master"
     self.ANALYTICS_GOOD = "http://goo.gl/QuQ1lE"
@@ -1026,7 +1026,7 @@ class MyImageLoader(threading.Thread):
 # Simple thread class to manage Raspberry Pi HDMI power state
 #
 class MyHDMIManager(threading.Thread):
-  def __init__(self, config, logger, cmdqueue, hdmidelay=900, onstopdelay=5):
+  def __init__(self, config, logger, cmdqueue, hdmidelay=900, onstopdelay=5, hdmiignoreplayer=False):
     threading.Thread.__init__(self)
 
     self.EV_PLAY_STOP = "play.stop"
@@ -1037,6 +1037,7 @@ class MyHDMIManager(threading.Thread):
     self.config = config
     self.logger = logger
     self.cmdqueue = cmdqueue
+    self.ignoreplayer=hdmiignoreplayer
 
     self.bin_tvservice = config.BIN_TVSERVICE
     self.bin_vcgencmd = config.BIN_VCGENCMD if config.BIN_VCGENCMD and os.path.exists(config.BIN_VCGENCMD) else None
@@ -1197,6 +1198,8 @@ class MyHDMIManager(threading.Thread):
               self.logger.debug("HDMI power off in %d seconds unless cancelled" % int(self.EventInterval(event)))
               if player_active or library_active:
                 self.logger.debug("HDMI power-off will not occur until both player and library become inactive")
+              if player_active and self.ignoreplayer:
+                self.logger.debug("Ignore player state... power-off HDMI anyway")
 
           # Process any expired events
           if self.EventExpired(event, now):
@@ -1205,6 +1208,8 @@ class MyHDMIManager(threading.Thread):
               player_active = False
               self.EventStop(event)
             elif event == self.EV_HDMI_OFF:
+              if player_active and self.ignoreplayer:
+                player_active = False
               if player_active or library_active:
                 if not self.EventOverdue(event, now):
                   self.logger.debug("HDMI power-off timeout reached - waiting for player and/or library to become inactive")
@@ -6315,7 +6320,7 @@ def getHMS(seconds):
 def showNotifications():
   MyJSONComms(gConfig, gLogger).listen()
 
-def rbphdmi(delay):
+def rbphdmi(delay, ignoreplayer):
 
   def rbphdmi_listen(self, method, params):
     cmdqueue.put({"method": method, "params": params})
@@ -6325,7 +6330,7 @@ def rbphdmi(delay):
   ATTEMPTS = 0
 
   cmdqueue = Queue.Queue()
-  hdmimgr = MyHDMIManager(gConfig, gLogger, cmdqueue, hdmidelay=delay)
+  hdmimgr = MyHDMIManager(gConfig, gLogger, cmdqueue, hdmidelay=delay, hdmiignoreplayer=ignoreplayer)
   hdmimgr.setDaemon(True)
   hdmimgr.start()
 
@@ -6589,7 +6594,7 @@ def usage(EXIT_CODE):
           sources [media] | sources media [label] | directory path | rdirectory path | readfile infile [outfile ; -] | \
           notify title message [displaytime [image]] | \
           status [idleTime] | monitor | power <state> | exec [params] | execw [params] | wake | \
-          rbphdmi [seconds] | stats [class]* |\
+          rbphdmi [seconds [ignore-active-player]] | stats [class]* |\
           input action* [parameter] | screenshot |\
           volume [mute;unmute;#] | \
           stress-test view-type numitems [pause] [repeat] [cooldown] |\
@@ -7307,7 +7312,8 @@ def main(argv):
 
   elif argv[0] == "rbphdmi":
     _delay = 900 if len(argv) == 1 else int(argv[1])
-    rbphdmi(delay=_delay)
+    _ignoreplayer = True if len(argv) == 2 else False
+    rbphdmi(delay=_delay, ignoreplayer=_ignoreplayer)
 
   elif argv[0] == "stats":
     MediaLibraryStats(argv[1:])
